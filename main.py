@@ -8,9 +8,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from common import load_gamestats
 import json
-from text_data import extract_sentiment_features, xs_ys_from_text
+from text_data import extract_sentiment_features, xs_ys_from_text, describe_reddit_data
 from tqdm.auto import tqdm
 from reddit_scraper import team_subreddits
+import torch
+from models import BertEncoder, create_model2, BertLayer
+pd.set_option('display.max_columns', 5)
 
 
 def prepare_data(df, concat_text=False):
@@ -121,12 +124,12 @@ if __name__ == "__main__":
     # Data nascrapovaná z redditu:
     reddit_json = json.load(open('data/reddit.json'))
     print("Reddit data description:")
-    print(str(reddit_json)[:500])
+    describe_reddit_data(reddit_json)
 
     # Pokud nastavíme nenulové, data se níže v training loopu zakódují jako timeseries a využije se LSTM, před standardním MLP
     lstm_timesteps = 0
     # Switch, jestli chceme využívat textová data, nebo ne
-    use_text_data = True
+    use_text_data = False
     use_bert = True
     print(lstm_timesteps, use_text_data, use_bert)
 
@@ -144,7 +147,21 @@ if __name__ == "__main__":
             text_feature_pool[position] = text_df
     # 2) Využití BERT encoderu
     if use_bert:
-        pass
+        # Define the model
+        bert_encoder = BertEncoder()
+
+        def encode_text(text):
+            inputs = bert_encoder.tokenizer(text, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
+            input_ids = inputs['input_ids']
+            attention_mask = inputs['attention_mask']
+            return input_ids, attention_mask
+
+        encoded_texts = {team: {match_date: encode_text(match_text)
+                                for match_date, match_text in reddit_json[team].items()}
+                         for team in reddit_json if team == "arsenal-london"
+        }
+        input_ids = torch.cat([item[0] for item in encoded_texts["arsenal-london"].values()])
+        attention_mask = torch.cat([item[1] for item in encoded_texts["arsenal-london"].values()])
 
     # Instanciace zatím prázdného modelu
     model = Sequential()
@@ -154,13 +171,13 @@ if __name__ == "__main__":
 
     if lstm_timesteps:
         model.add(Input(shape=(lstm_timesteps, data_dim)))
-        model.add(LSTM(32, dropout=0.5, unroll=True))
+        model.add(LSTM(400, dropout=0.5, unroll=True))
     else:
         model.add(Input(shape=[data_dim]))
 
     # Přidání Dense vrstev Multi Layer Perceptronu
-    for i in range(2):
-        model.add(Dense(8, activation="relu"))
+    for i in range(4):
+        model.add(Dense(100, activation="relu"))
         model.add(Dropout(0.5))
     model.add(Dense(1, activation=None))
 
@@ -181,6 +198,22 @@ if __name__ == "__main__":
             x_val, t_val, _ = create_sequences(x_val, t_val, lstm_timesteps)
 
         x_test, t_test = x_test.loc[lstm_data_index].sort_index().astype('float32'), t_test.loc[lstm_data_index].sort_index().astype('float32')
+
+        #Bert concated model2
+        # TODO: neni vubec potreba delat classu pro model2 - už máme encodings, tak jen vyrobím feature vectory a dám zbytku kódu
+        # model dokonce může zůstat jen jeden
+        numerical_data = x_train
+        numerical_input_dim = numerical_data.size(1)
+        hidden_dim = 128
+        output_dim = 1  # Assuming binary classification or regression
+        model = create_model2(BertLayer(), numerical_input_dim, hidden_dim, output_dim)
+        #model.fit(x_train, t_train)
+        model.fit([input_ids, attention_mask, x_train], t_train, epochs=200, batch_size=8,
+                  validation_data=([input_ids, attention_mask, x_val], t_val))
+
+        test_loss = model.evaluate([input_ids, attention_mask, x_test], t_test)
+        print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
+
 
         # Nafitujeme model, přičemž také sledujeme validační chybu
         model.fit(x_train, t_train, epochs=200, batch_size=8, validation_data=(x_val, t_val))
