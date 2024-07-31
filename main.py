@@ -8,15 +8,17 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from common import load_gamestats
 import json
-from text_data import extract_sentiment_features, xs_ys_from_text, describe_reddit_data
+from text_data import extract_sentiment_features, xs_ys_from_text, describe_reddit_data, row_to_bert_vector
 from tqdm.auto import tqdm
 from reddit_scraper import team_subreddits
-import torch
 from models import BertEncoder, create_model2, BertLayer
+import tensorflow as tf
+import torch
+
 pd.set_option('display.max_columns', 5)
 
 
-def prepare_data(df, concat_text=False):
+def prepare_data(df, position, concat_text=False, use_bert=False):
     numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
     data = df.drop(columns=["totalScore", "devFromL40"]).select_dtypes(include=numerics).fillna(
         df.drop(columns=["totalScore", "devFromL40"]).select_dtypes(include=numerics).median()).fillna(0)
@@ -34,8 +36,13 @@ def prepare_data(df, concat_text=False):
     if concat_text:
         text_df = pd.read_csv(f"dataset/textual/{position}.csv", index_col="gameId")
         data = text_df.merge(data, left_index=True, right_index=True, how='inner')
-        target = data["totalScore"]
-        data.drop(columns=["totalScore"], inplace=True)
+        target = df["totalScore"]
+        l40s = l40s[:len(data)]
+
+    if use_bert:
+        bert_df = pd.read_csv(f"dataset/bert/{position}.csv", index_col="gameId")
+        data = bert_df.merge(data, left_index=True, right_index=True, how='inner')
+        target = df["totalScore"]
         l40s = l40s[:len(data)]
 
     x_train, x_temp, t_train, t_temp, _, l40s_temp = train_test_split(data, target, l40s, train_size=0.7, shuffle=False)
@@ -56,7 +63,7 @@ def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int) 
     """
     sequences = []
     targets = []
-    target_ids =[]
+    target_ids = []
     df_data = df.copy()
     # Create new columns for Player and Date by splitting the index
     player_names = df_data.index.map(lambda x: x.split('_')[0])
@@ -79,7 +86,8 @@ def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int) 
             # Iterate over the group to create sequences
             for i in range(len(group) - timestep):
                 seq = group.iloc[i:i + timestep].drop(columns=['Player', 'Date']).values  # Extract sequence of features
-                target_index = group.index[i + timestep]  # Get the index of the target corresponding to the end of the sequence
+                target_index = group.index[
+                    i + timestep]  # Get the index of the target corresponding to the end of the sequence
                 target = series_target.loc[target_index]  # Get the target value
 
                 target_ids.append(target_index)
@@ -104,10 +112,9 @@ if __name__ == "__main__":
     game_stats = game_stats[
         (game_stats.homeTeam.isin(list(team_subreddits.keys()))) |
         (game_stats.awayTeam.isin(list(team_subreddits.keys())))
-    ]
+        ]
     print("Original data/Game stats snippet:")
     print(game_stats.head())
-
 
     # Dataset, který jsem používal v bakalářské práci
     # Řádek je jeden zápas z pohledu jednoho hráče a obsahuje *agregované statistiky před začátkem zápasu a cíl. vel.
@@ -124,14 +131,15 @@ if __name__ == "__main__":
     # Data nascrapovaná z redditu:
     reddit_json = json.load(open('data/reddit.json'))
     print("Reddit data description:")
-    describe_reddit_data(reddit_json)
+    # describe_reddit_data(reddit_json)
 
     # Pokud nastavíme nenulové, data se níže v training loopu zakódují jako timeseries a využije se LSTM, před standardním MLP
     lstm_timesteps = 0
     # Switch, jestli chceme využívat textová data, nebo ne
     use_text_data = False
-    use_bert = True
-    print(lstm_timesteps, use_text_data, use_bert)
+    create_bert_features = False
+    use_bert_model = True
+    print(lstm_timesteps, use_text_data, create_bert_features)
 
     # 1) Využití lexicon based algoritmu z TextBlobu
     if use_text_data:
@@ -146,26 +154,36 @@ if __name__ == "__main__":
             text_df = game_stats[game_stats.position == position].progress_apply(xs_ys_from_text, **text_args)
             text_feature_pool[position] = text_df
     # 2) Využití BERT encoderu
-    if use_bert:
-        # Define the model
+    if create_bert_features:
+        # Prepare bert vectors for each team/match_date
         bert_encoder = BertEncoder()
-
         def encode_text(text):
-            inputs = bert_encoder.tokenizer(text, return_tensors='pt', max_length=512, truncation=True, padding='max_length')
+            inputs = bert_encoder.tokenizer(text, return_tensors='pt', max_length=512, truncation=True,
+                                            padding='max_length')
             input_ids = inputs['input_ids']
             attention_mask = inputs['attention_mask']
             return input_ids, attention_mask
 
+
         encoded_texts = {team: {match_date: encode_text(match_text)
                                 for match_date, match_text in reddit_json[team].items()}
-                         for team in reddit_json if team == "arsenal-london"
-        }
-        input_ids = torch.cat([item[0] for item in encoded_texts["arsenal-london"].values()])
-        attention_mask = torch.cat([item[1] for item in encoded_texts["arsenal-london"].values()])
+                         for team in reddit_json
+                         }
+
+        bert_args = {'encoded_texts': encoded_texts, 'axis': 1}
+        bert_feature_pool = {}
+        for position in positions:
+            tqdm.pandas()
+            bert_df = game_stats[game_stats.position == position].progress_apply(row_to_bert_vector, **bert_args)
+            bert_df = bert_df.set_index("gameId")
+            bert_feature_pool[position] = bert_df
+            bert_df.to_csv(f"dataset/bert/{position}.csv")
 
     # Instanciace zatím prázdného modelu
     model = Sequential()
     data_dim = 658
+    if use_bert_model:
+        data_dim += 1
     if use_text_data:
         data_dim += 10
 
@@ -187,8 +205,10 @@ if __name__ == "__main__":
 
     for position in positions:
         # Rozdělení dat do potřebných množin
-        x_train, x_val, x_test, t_train, t_val, t_test, _ = prepare_data(feature_pool[position], concat_text=use_text_data)
-        _, _, lstm_data_index = create_sequences(x_test, t_test, 2)
+        x_train, x_val, x_test, t_train, t_val, t_test, _ = prepare_data(feature_pool[position],
+                                                                         position,
+                                                                         concat_text=False,
+                                                                         use_bert=False)
 
         if lstm_timesteps:
             # Zakódujeme data do timeseries formátu pro LSTM
@@ -197,32 +217,58 @@ if __name__ == "__main__":
             x_test, t_test, _ = create_sequences(x_test, t_test, lstm_timesteps)
             x_val, t_val, _ = create_sequences(x_val, t_val, lstm_timesteps)
 
-        x_test, t_test = x_test.loc[lstm_data_index].sort_index().astype('float32'), t_test.loc[lstm_data_index].sort_index().astype('float32')
+        cut_data_to_lstm_size = False
+        if cut_data_to_lstm_size:
+            _, _, lstm_data_index = create_sequences(x_test, t_test, 2)
+            x_test, t_test = x_test.loc[lstm_data_index].sort_index().astype('float32'), t_test.loc[
+                lstm_data_index].sort_index().astype('float32')
 
-        #Bert concated model2
-        # TODO: neni vubec potreba delat classu pro model2 - už máme encodings, tak jen vyrobím feature vectory a dám zbytku kódu
-        # model dokonce může zůstat jen jeden
-        numerical_data = x_train
-        numerical_input_dim = numerical_data.size(1)
-        hidden_dim = 128
-        output_dim = 1  # Assuming binary classification or regression
-        model = create_model2(BertLayer(), numerical_input_dim, hidden_dim, output_dim)
-        #model.fit(x_train, t_train)
-        model.fit([input_ids, attention_mask, x_train], t_train, epochs=200, batch_size=8,
-                  validation_data=([input_ids, attention_mask, x_val], t_val))
+        if use_bert_model:
+            hidden_dim = 128
+            output_dim = 1  # Assuming binary classification or regression
+            model = create_model2(data_dim, hidden_dim, output_dim)
+            bert_df = pd.read_csv(f"dataset/bert/{position}.csv", index_col="gameId")
+            flip_sentiment_col = bert_df["flipSentiment"]
+            bert_df = bert_df.drop(columns=["flipSentiment"])
+            bert_train, bert_temp = train_test_split(bert_df, train_size=0.7, shuffle=False)
+            bert_val, bert_test = train_test_split(bert_temp, train_size=0.5, shuffle=False)
 
-        test_loss = model.evaluate([input_ids, attention_mask, x_test], t_test)
-        print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
+            att_mask_train = pd.DataFrame(np.ones(bert_train.shape), index=bert_train.index, columns=bert_train.columns)
+            att_mask_val = pd.DataFrame(np.ones(bert_val.shape), index=bert_val.index, columns=bert_val.columns)
+            att_mask_test = pd.DataFrame(np.ones(bert_test.shape), index=bert_test.index, columns=bert_test.columns)
 
+            x_train["flipSentiment"] = flip_sentiment_col
+            x_val["flipSentiment"] = flip_sentiment_col
+            x_test["flipSentiment"] = flip_sentiment_col
 
-        # Nafitujeme model, přičemž také sledujeme validační chybu
-        model.fit(x_train, t_train, epochs=200, batch_size=8, validation_data=(x_val, t_val))
-        test_loss = model.evaluate(x_test, t_test)
-        print("Test data size:", len(x_test))
-        print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
+            train_inputs = [bert_train,
+                            att_mask_train,
+                            x_train]
+            val_inputs = [bert_val,
+                          att_mask_val,
+                          x_val]
+            test_inputs = [bert_test,
+                           att_mask_test,
+                           x_test]
+            # Nešlo mi zapnout trénování pomocí GPU, stáhnul jsem si CUDA, env. proměnné nastavené, ale nefunuguje
+            # Tady už je trénování tak pomalé, že by se to vyplatilo umět
+            # TODO: make sure GPU is used for training
+            model.fit(train_inputs, t_train, epochs=20,
+                      batch_size=50,
+                      validation_data=(val_inputs, t_val))
+
+            model.save(f"model2_{position}.keras")
+            test_loss = model.evaluate(test_inputs, t_test)
+            print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
+        else:
+            # Nafitujeme model, přičemž také sledujeme validační chybu
+            model.fit(x_train, t_train, epochs=50, batch_size=8, validation_data=(x_val, t_val))
+            test_loss = model.evaluate(x_test, t_test)
+            print("Test data size:", len(x_test))
+            print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
 
         average_train_target = np.mean(t_train)
         baseline_predictions = np.full(shape=t_test.shape, fill_value=average_train_target)
         baseline_rmse = np.sqrt(np.mean((t_test - baseline_predictions) ** 2))
         print(f'Baseline RMSE (predicting average of train targets): {baseline_rmse}')
-        #predictions = model.predict(x_test)
+        # predictions = model.predict(x_test)

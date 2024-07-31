@@ -6,6 +6,31 @@ from collections import Counter
 nltk.download('stopwords')
 
 
+def row_to_bert_vector(row, encoded_texts):
+    player_club = row['club']
+    match_date = row['date']
+    modeled_club = player_club
+    flip_sentiment = False
+    if player_club not in encoded_texts.keys():
+        flip_sentiment = True
+        if player_club == row.homeTeam:
+            modeled_club = row.awayTeam
+        else:
+            modeled_club = row.homeTeam
+
+    # Get all dates for the club that are before the match date
+    eligible_match_dates = sorted([date for date in encoded_texts[modeled_club] if date < match_date], reverse=True)
+    date_for_consideration = eligible_match_dates[0]
+
+    input_ids = encoded_texts[modeled_club][date_for_consideration][0]
+
+    res = {'gameId': f"{row.slug}_{row.date}", "flipSentiment": int(flip_sentiment)}
+    for i in range(input_ids.shape[1]):
+        res[f"input_ids_{i}"] = float(input_ids[0][i])
+
+    return pd.Series(res)
+
+
 def extract_sentiment_features(corpus):
     analysis = TextBlob(corpus)
     polarity = analysis.sentiment.polarity
