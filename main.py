@@ -1,19 +1,17 @@
 import argparse
+import json
+
 import pandas as pd
 import numpy as np
-from typing import Tuple, List
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
-from common import load_gamestats
-import json
 from tensorflow.keras.callbacks import EarlyStopping
+
 from text_data import describe_reddit_data, create_and_save_bert, create_and_save_textblob
-from tqdm.auto import tqdm
 from reddit_scraper import team_subreddits
-from models import BertEncoder, create_model2, create_model1
-import tensorflow as tf
-import torch
+from models import create_model2, create_model1
+from common import load_gamestats
 
 pd.set_option('display.max_columns', 5)
 parser = argparse.ArgumentParser()
@@ -156,7 +154,7 @@ if __name__ == "__main__":
     # Data nascrapovaná z redditu:
     reddit_json = json.load(open('data/reddit.json'))
     print("Reddit data description:")
-    # describe_reddit_data(reddit_json)
+    describe_reddit_data(reddit_json)
 
     # Konfigurace programu
     use_text = args.use_textblob

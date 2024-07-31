@@ -1,11 +1,13 @@
+from collections import Counter
+
 import nltk
 from textblob import TextBlob
 import numpy as np
 import pandas as pd
-from collections import Counter
 nltk.download('stopwords')
 from tqdm.auto import tqdm
 tqdm.pandas()
+
 from models import BertEncoder
 
 
@@ -103,7 +105,7 @@ def describe_reddit_data(reddit_json):
     print("Reddit data is composed of 100 top comments of each relevant thread and then top 10 replies to each.")
     print("This makes up to 1000 comments per match.")
     print("Some comments are more relevant to the prediction task than others, as shown below")
-    print("We won't however adress this problem and just assume that the most popular comments have the useful info.")
+    print("This problem is hard to tackle, so we just assume that the most popular comments have the useful info.")
     all_teams_text = ""
     for team, team_dict in reddit_json.items():
         stats[team]["number_of_matches"] = len(team_dict)
@@ -117,7 +119,7 @@ def describe_reddit_data(reddit_json):
             print("There is text which has predictive value for individual players: ", messages_flattened[13])
             print("There is text which is straight up jokes and not very useful for predictions: ", messages_flattened[4])
             print("There is text which is not related to team performance: ", messages_flattened[33])
-            print("There is text about too specific situations of the game: ",  messages_flattened[16])
+            print("There is text about too specific situations of the game: ",  messages_flattened[43])
 
         stats[team]["avg_comment_len"] = sum([len(msg) for msg in messages_flattened]) / len(messages_flattened)
 
@@ -141,7 +143,7 @@ def describe_reddit_data(reddit_json):
 
         stats[team]["vocab"] = sorted_vocabulary(team_text)
         for k, stat in stats[team].items():
-            if k != "vocab":
+            if k != "vocab" and team == team == "arsenal-london":
                 print(f"Stat: {k} for {team}: ", stat)
             else:
                 continue
