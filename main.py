@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from common import load_gamestats
 import json
+from tensorflow.keras.callbacks import EarlyStopping
 from text_data import describe_reddit_data, create_and_save_bert, create_and_save_textblob
 from tqdm.auto import tqdm
 from reddit_scraper import team_subreddits
@@ -20,36 +21,62 @@ parser.add_argument("--num_layers", type=int, default=4)
 parser.add_argument("--hidden_dim", type=int, default=128)
 parser.add_argument("--dropout", type=float, default=0.5)
 
+
 parser.add_argument("--lstm_timesteps", type=int, default=0,
                     help="Set zero to not use LSTM, else set size of sequence u want to train/predict from.")
+parser.add_argument("--use_bert", type=bool, default=True,
+                    help="Whether to use bert or not, if BERT is used we can't use LSTM")
+parser.add_argument("--use_textblob", type=bool, default=False,
+                    help="Whether to use textblob features or not.")
 
 
-def prepare_data(df, position, concat_text=False):
+def prepare_data(df, concat_text=False):
+    """
+    Functions which cleans up data (fillna, include numerics only), scales them and splits to train/val/test sets.
+    :param df:
+    :param position:
+    :param concat_text: Whether we want to use textblob features too
+    :return:
+    """
     numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-    data = df.drop(columns=["totalScore", "devFromL40"]).select_dtypes(include=numerics).fillna(
-        df.drop(columns=["totalScore", "devFromL40"]).select_dtypes(include=numerics).median()).fillna(0)
-    data = data.iloc[:, :-12]
-    target = df["totalScore"].replace([np.inf, -np.inf], df["totalScore"].median()).fillna(45)
-    l40s = df["L40"].replace([np.inf, -np.inf], df["L40"].median()).fillna(45)
+    filtered_df = df.drop(columns=["totalScore", "devFromL40"]).select_dtypes(include=numerics)
+    df_median = filtered_df.median()
+    data = filtered_df.fillna(df_median).fillna(0)
 
+    if not concat_text:
+        text_blob_feature_count = 10
+        # delete last ten features as those are the ones from TextBlob
+        data = data.iloc[:, :-text_blob_feature_count]
+
+    infinities = [np.inf, -np.inf]
+    average_score = 45 # players score roughly 45
+    # Try to fill with median
+    target = df["totalScore"].replace(infinities, df["totalScore"].median()).fillna(average_score)
+    l40s = df["L40"].replace(infinities, df["L40"].median()).fillna(average_score)
+
+    # Scale features
     col_trans = ColumnTransformer(
         [("scaler", RobustScaler(), [i for i in range(data.shape[1])])],
         remainder="passthrough"
     )
-
     data = pd.DataFrame(col_trans.fit_transform(data), columns=data.columns, index=data.index)
 
-    if concat_text:
-        text_df = pd.read_csv(f"dataset/textual/{position}.csv", index_col="gameId")
-        data = text_df.merge(data, left_index=True, right_index=True, how='inner')
-        target = df["totalScore"]
-        l40s = l40s[:len(data)]
-
+    # Split data
     x_train, x_temp, t_train, t_temp, _, l40s_temp = train_test_split(data, target, l40s, train_size=0.7, shuffle=False)
     x_val, x_test, t_val, t_test, _, l40s_test = train_test_split(x_temp, t_temp, l40s_temp, train_size=0.5,
                                                                   shuffle=False)
 
     return x_train, x_val, x_test, t_train, t_val, t_test, l40s_test
+
+
+def load_feature_pool() -> pd.DataFrame:
+    fp = {}
+    for position in positions:
+        df = pd.read_csv(f"dataset/2024-03-12_comprehensive/{position}.csv", index_col="gameId")
+        df.columns = df.columns.str.replace('<', '_under_')
+        df = df[~df.index.to_series().astype(str).str.contains('2020|2019')]
+        fp[position] = df
+    return fp
 
 
 def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int):
@@ -120,13 +147,10 @@ if __name__ == "__main__":
     # Dataset, který jsem používal v bakalářské práci
     # Řádek je jeden zápas z pohledu jednoho hráče a obsahuje *agregované statistiky před začátkem zápasu a cíl. vel.
     # *Např. L40_mean je průměr skóre hráče za posledních 40 zápasů
-    feature_pool = {}
-    for position in positions:
-        df = pd.read_csv(f"dataset/2024-03-12_comprehensive/{position}.csv", index_col="gameId")
-        df.columns = df.columns.str.replace('<', '_under_')
-        # needs to replace < because it interferes with some models.
-        df = df[~df.index.to_series().astype(str).str.contains('2020|2019')]
-        feature_pool[position] = df
+    feature_pool = load_feature_pool()
+
+
+
     print("Feature pool snippet:")
     print(feature_pool["Forward"].head())
     # Data nascrapovaná z redditu:
@@ -134,52 +158,56 @@ if __name__ == "__main__":
     print("Reddit data description:")
     # describe_reddit_data(reddit_json)
 
-    # Switch, jestli chceme využívat textová data, nebo ne
-    use_text_data = True
-    create_bert_features = False
-    use_bert_model = False
+    # Konfigurace programu
+    use_text = args.use_textblob
+    use_bert_model = args.use_bert
     lstm_timesteps = args.lstm_timesteps
-    print(lstm_timesteps, use_text_data, create_bert_features, use_bert_model)
-
-    # 1) Využití lexicon based algoritmu z TextBlobu
-    create_and_save_textblob(game_stats, reddit_json, positions)
-
-    # 2) Využití BERT encoderu
-    create_and_save_bert(game_stats, reddit_json, positions)
+    if use_bert_model and lstm_timesteps:
+        raise NotImplementedError("Can't use LSTM (model1) and BERT (model2) at the same time")
+    print("LSTM:", lstm_timesteps,"Use textblob:", use_text, "Use BERT:", use_bert_model)
 
 
-    data_dim = 658
+    # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
+    #create_and_save_textblob(game_stats, reddit_json, positions)
+
+    # 2) Využití BERT encoderu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
+    #create_and_save_bert(game_stats, reddit_json, positions)
+
+    data_dim = 660
     if use_bert_model:
         data_dim += 1
-    if use_text_data:
+    if use_text:
         data_dim += 10
-
-    model1 = create_model1(args.lstm_timesteps, data_dim, args.hidden_dim, args.num_layers)
 
     for position in positions:
         # Rozdělení dat do potřebných množin
-        x_train, x_val, x_test, t_train, t_val, t_test, _ = prepare_data(feature_pool[position],
-                                                                         position,
-                                                                         concat_text=False,
-                                                                         use_bert=False)
+        x_train, x_val, x_test, t_train, t_val, t_test, _ = prepare_data(feature_pool[position], concat_text=use_text)
 
         if lstm_timesteps:
             # Zakódujeme data do timeseries formátu pro LSTM
-            # Timeseries datapointů vznikne méně než bylo původních dat, čím větší je lstm_timesteps, tím méně datapointů
+            # Timeseries datapointů vznikne méně než bylo původních dat, čím větší je lstm_timesteps, tím méně dat
             x_train, t_train, _ = create_sequences(x_train, t_train, lstm_timesteps)
             x_test, t_test, _ = create_sequences(x_test, t_test, lstm_timesteps)
             x_val, t_val, _ = create_sequences(x_val, t_val, lstm_timesteps)
 
+        else:
+            # Pokud využíváme jiný model než LSTM, pro vzájemné porovnání je potřeba testovat na stejných datech
+            lstm_steps_to_compare_with = 2
+            _, _, lstm_data_index = create_sequences(x_test, t_test, lstm_steps_to_compare_with)
+            x_test = x_test.loc[lstm_data_index]
+            t_test = t_test.loc[lstm_data_index]
 
-
-        _, _, lstm_data_index = create_sequences(x_test, t_test, lstm_timesteps)
-        x_test = x_test.loc[lstm_data_index].sort_index().astype('float32')
-        t_test = t_test.loc[lstm_data_index].sort_index().astype('float32')
-
-        if use_bert_model:
-            hidden_dim = 128
-            output_dim = 1  # Assuming binary classification or regression
-            model = create_model2(data_dim, hidden_dim, output_dim)
+        if not use_bert_model:
+            model1 = create_model1(args.lstm_timesteps, data_dim, args.hidden_dim, args.num_layers, args.dropout)
+            model1.fit(x_train, t_train,
+                       epochs=200,
+                       batch_size=50,
+                       validation_data=(x_val, t_val),
+                       callbacks=[EarlyStopping(monitor='val_loss', patience=200, restore_best_weights=True)])
+            test_loss = model1.evaluate(x_test, t_test)
+            print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
+        else:
+            model = create_model2(data_dim, args.hidden_dim, args.num_layers, args.dropout)
 
             bert_df = pd.read_csv(f"dataset/bert/{position}.csv", index_col="gameId")
             flip_sentiment_col = bert_df["flipSentiment"]
@@ -205,27 +233,20 @@ if __name__ == "__main__":
                            att_mask_test,
                            x_test]
 
-            from tensorflow.keras.callbacks import EarlyStopping
-            early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-
             # Nešlo mi zapnout trénování pomocí GPU, stáhnul jsem si CUDA, env. proměnné nastavené, ale nefunuguje
             # Tady už je trénování tak pomalé, že by se to vyplatilo umět
             # TODO: make sure GPU is used for training
-            model.fit(train_inputs, t_train, epochs=200,
+            model.fit(train_inputs, t_train,
+                      epochs=200,
                       batch_size=50,
                       validation_data=(val_inputs, t_val),
-                      callbacks=[early_stopping])
+                      callbacks=[EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)])
 
-            model.save(f"model2_fullbert_{position}.keras")
+            model.save(f"model2_{position}.keras")
             test_loss = model.evaluate(test_inputs, t_test)
             print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
-        else:
-            # Nafitujeme model, přičemž také sledujeme validační chybu
-            model1.fit(x_train, t_train, epochs=50, batch_size=8, validation_data=(x_val, t_val))
-            test_loss = model.evaluate(x_test, t_test)
-            print("Test data size:", len(x_test))
-            print(f'Test loss {position}(RMSE): {np.sqrt(test_loss)}')
 
+        print("Test data size:", len(x_test))
         average_train_target = np.mean(t_train)
         baseline_predictions = np.full(shape=t_test.shape, fill_value=average_train_target)
         baseline_rmse = np.sqrt(np.mean((t_test - baseline_predictions) ** 2))

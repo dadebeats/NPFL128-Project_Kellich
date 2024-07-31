@@ -169,6 +169,7 @@ def create_and_save_textblob(game_stats, reddit_json, positions):
         tqdm.pandas()
         text_df = game_stats[game_stats.position == position].progress_apply(xs_ys_from_text, **text_args)
         text_feature_pool[position] = text_df
+        text_df.to_csv(f"dataset/textual/{position}.csv")
 
 
 def create_and_save_bert(game_stats, reddit_json, positions):

@@ -39,15 +39,16 @@ class BertLayer(Layer):
         #return (input_shape[0], self.output_dim)
 
 
-def create_model2(numerical_input_dim, hidden_dim, output_dim):
+def create_model2(numerical_input_dim, hidden_dim, num_layers, dropout):
     # BERT inputs
-    input_ids = Input(shape=(512,), dtype='int32', name='input_ids')
-    attention_mask = Input(shape=(512,), dtype='int32', name='attention_mask')
+    bert_dimension = 512
+    input_ids = Input(shape=(bert_dimension,), dtype='int32', name='input_ids')
+    attention_mask = Input(shape=(bert_dimension,), dtype='int32', name='attention_mask')
 
     # Numerical inputs
     numerical_input = Input(shape=(numerical_input_dim,), dtype='float32', name='numerical_input')
 
-    # BERT embeddings
+    # BERT embeddings: Freeze all layers but the last two
     bert_model = BertLayer()
     for layer in bert_model.bert.layers[:-2]:
         layer.trainable = False
@@ -56,18 +57,22 @@ def create_model2(numerical_input_dim, hidden_dim, output_dim):
 
     # Numerical MLP
     numerical_mlp = Dense(hidden_dim, activation='relu')(numerical_input)
-    numerical_mlp = Dropout(0.5)(numerical_mlp)
-    numerical_mlp = Dense(hidden_dim, activation='relu')(numerical_mlp)
+    numerical_mlp = Dropout(dropout)(numerical_mlp)
+    for _ in range(num_layers - 1):
+        numerical_mlp = Dense(hidden_dim, activation='relu')(numerical_mlp)
+        numerical_mlp = Dropout(dropout)(numerical_mlp)
 
     # Concatenate BERT and numerical embeddings
     combined = Concatenate()([bert_output, numerical_mlp])
 
     # Final MLP layers
     x = Dense(hidden_dim, activation='relu')(combined)
-    x = Dropout(0.5)(x)
-    x = Dense(hidden_dim, activation='relu')(x)
-    x = Dropout(0.5)(x)
-    output = Dense(output_dim, activation=None)(x)
+    x = Dropout(dropout)(x)
+    for _ in range(num_layers - 1):
+        x = Dense(hidden_dim, activation='relu')(x)
+        x = Dropout(dropout)(x)
+
+    output = Dense(1, activation=None)(x)
 
     # Create the model
     model = Model(inputs=[input_ids, attention_mask, numerical_input], outputs=output)
@@ -78,18 +83,18 @@ def create_model2(numerical_input_dim, hidden_dim, output_dim):
     return model
 
 
-def create_model1(lstm_timesteps, data_dim, hidden_dim, num_layers):
+def create_model1(lstm_timesteps, data_dim, hidden_dim, num_layers, dropout):
     model = Sequential()
     if lstm_timesteps:
         model.add(Input(shape=(lstm_timesteps, data_dim)))
-        model.add(LSTM(128, dropout=0.5, unroll=True))
+        model.add(LSTM(128, dropout=dropout, unroll=True))
     else:
         model.add(Input(shape=[data_dim]))
 
     # Přidání Dense vrstev Multi Layer Perceptronu
     for i in range(num_layers):
         model.add(Dense(hidden_dim, activation="relu"))
-        model.add(Dropout(0.5))
+        model.add(Dropout(dropout))
     model.add(Dense(1, activation=None))
 
     model.compile(loss='mean_squared_error',
