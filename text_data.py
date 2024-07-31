@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 from collections import Counter
 nltk.download('stopwords')
+from tqdm.auto import tqdm
+tqdm.pandas()
+from models import BertEncoder
 
 
 def row_to_bert_vector(row, encoded_texts):
@@ -155,3 +158,39 @@ def describe_reddit_data(reddit_json):
     return stats
 
 
+def create_and_save_textblob(game_stats, reddit_json, positions):
+    text_feature_pool = {}
+
+    sentiments = {team: {date: extract_sentiment_features(text) for date, text in team_d.items()}
+                  for team, team_d in reddit_json.items()}
+
+    text_args = {'sentiments': sentiments, 'axis': 1}
+    for position in positions:
+        tqdm.pandas()
+        text_df = game_stats[game_stats.position == position].progress_apply(xs_ys_from_text, **text_args)
+        text_feature_pool[position] = text_df
+
+
+def create_and_save_bert(game_stats, reddit_json, positions):
+    bert_encoder = BertEncoder()
+
+    def encode_text(text):
+        inputs = bert_encoder.tokenizer(text, return_tensors='pt', max_length=512, truncation=True,
+                                        padding='max_length')
+        input_ids = inputs['input_ids']
+        attention_mask = inputs['attention_mask']
+        return input_ids, attention_mask
+
+    encoded_texts = {team: {match_date: encode_text(match_text)
+                            for match_date, match_text in reddit_json[team].items()}
+                     for team in reddit_json
+                     }
+
+    bert_args = {'encoded_texts': encoded_texts, 'axis': 1}
+    bert_feature_pool = {}
+    for position in positions:
+        tqdm.pandas()
+        bert_df = game_stats[game_stats.position == position].progress_apply(row_to_bert_vector, **bert_args)
+        bert_df = bert_df.set_index("gameId")
+        bert_feature_pool[position] = bert_df
+        bert_df.to_csv(f"dataset/bert/{position}.csv")

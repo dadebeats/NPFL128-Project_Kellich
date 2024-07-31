@@ -1,11 +1,14 @@
 from torch import nn
 from tensorflow.keras.layers import Layer
-from transformers import TFBertModel, TFBertTokenizer
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Input, Dense, Dropout, Concatenate
 from transformers import TFDistilBertModel, DistilBertTokenizer
+from keras.api.models import Sequential
+from keras.api.layers import LSTM, Dense, Input, Dropout
 
 model_name = 'distilbert-base-uncased'
+
+
 class BertEncoder(nn.Module):
     def __init__(self):
         super(BertEncoder, self).__init__()
@@ -46,9 +49,9 @@ def create_model2(numerical_input_dim, hidden_dim, output_dim):
 
     # BERT embeddings
     bert_model = BertLayer()
-
-    for layer in bert_model.bert.layers[:-1]:
+    for layer in bert_model.bert.layers[:-2]:
         layer.trainable = False
+
     bert_output = bert_model([input_ids, attention_mask])
 
     # Numerical MLP
@@ -72,4 +75,24 @@ def create_model2(numerical_input_dim, hidden_dim, output_dim):
     # Compile the model
     model.compile(optimizer='adam', loss='mean_squared_error', metrics=['mean_squared_error'])
 
+    return model
+
+
+def create_model1(lstm_timesteps, data_dim, hidden_dim, num_layers):
+    model = Sequential()
+    if lstm_timesteps:
+        model.add(Input(shape=(lstm_timesteps, data_dim)))
+        model.add(LSTM(128, dropout=0.5, unroll=True))
+    else:
+        model.add(Input(shape=[data_dim]))
+
+    # Přidání Dense vrstev Multi Layer Perceptronu
+    for i in range(num_layers):
+        model.add(Dense(hidden_dim, activation="relu"))
+        model.add(Dropout(0.5))
+    model.add(Dense(1, activation=None))
+
+    model.compile(loss='mean_squared_error',
+                  optimizer='adam',
+                  metrics=['mean_squared_error'])
     return model
