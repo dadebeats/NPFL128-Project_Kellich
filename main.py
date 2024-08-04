@@ -15,10 +15,9 @@ from common import load_gamestats
 
 pd.set_option('display.max_columns', 5)
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_layers", type=int, default=4)
+parser.add_argument("--num_layers", type=int, default=2)
 parser.add_argument("--hidden_dim", type=int, default=128)
-parser.add_argument("--dropout", type=float, default=0.5)
-
+parser.add_argument("--dropout", type=float, default=0.2)
 
 parser.add_argument("--lstm_timesteps", type=int, default=0,
                     help="Set zero to not use LSTM, else set size of sequence u want to train/predict from.")
@@ -47,7 +46,7 @@ def prepare_data(df, concat_text=False):
         data = data.iloc[:, :-text_blob_feature_count]
 
     infinities = [np.inf, -np.inf]
-    average_score = 45 # players score roughly 45
+    average_score = 45  # players score roughly 45
     # Try to fill with median
     target = df["totalScore"].replace(infinities, df["totalScore"].median()).fillna(average_score)
     l40s = df["L40"].replace(infinities, df["L40"].median()).fillna(average_score)
@@ -160,9 +159,10 @@ if __name__ == "__main__":
     use_text = args.use_textblob
     use_bert_model = args.use_bert
     lstm_timesteps = args.lstm_timesteps
+    lstm_data_index = None
     if use_bert_model and lstm_timesteps:
         raise NotImplementedError("Can't use LSTM (model1) and BERT (model2) at the same time")
-    print("LSTM:", lstm_timesteps,"Use textblob:", use_text, "Use BERT:", use_bert_model)
+    print("LSTM:", lstm_timesteps, "Use textblob:", use_text, "Use BERT:", use_bert_model)
 
 
     # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
@@ -227,6 +227,12 @@ if __name__ == "__main__":
             val_inputs = [bert_val,
                           att_mask_val,
                           x_val]
+
+            # Omezení testovacích dat:
+            if lstm_data_index is not None:
+                bert_test = bert_test.loc[lstm_data_index]
+                att_mask_test = att_mask_test.loc[lstm_data_index]
+
             test_inputs = [bert_test,
                            att_mask_test,
                            x_test]
@@ -236,9 +242,9 @@ if __name__ == "__main__":
             # TODO: make sure GPU is used for training
             model.fit(train_inputs, t_train,
                       epochs=200,
-                      batch_size=50,
+                      batch_size=20,
                       validation_data=(val_inputs, t_val),
-                      callbacks=[EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)])
+                      callbacks=[EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)])
 
             model.save(f"model2_{position}.keras")
             test_loss = model.evaluate(test_inputs, t_test)
