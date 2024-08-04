@@ -25,5 +25,5 @@ On the Approach 2 model, because of the slow training, I set patience to 5 to en
 ## Possible problems:
 Too little text data. Too little of preprocessing. Missed some better models/approaches to use. Better finetuning.
 Too little context window.
-0 baseline: využít jen numerická data a vložit je do MLP
+
 
