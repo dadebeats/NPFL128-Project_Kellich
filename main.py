@@ -166,14 +166,9 @@ if __name__ == "__main__":
         raise NotImplementedError("Can't use LSTM (model1) and BERT (model2) at the same time")
     print("LSTM:", lstm_timesteps, "Use textblob:", use_text, "Use BERT:", use_bert_model)
 
-
-    # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
-    #create_and_save_textblob(game_stats, reddit_json, positions)
     # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentované - v gitu jsou už potř. soubory
     # create_and_save_textblob(game_stats, reddit_json, positions)
 
-    # 2) Využití BERT encoderu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
-    #create_and_save_bert(game_stats, reddit_json, positions)
     # 2) Využití BERT encoderu - pro zrychlení zakomentované - v gitu jsou už potř. soubory
     # create_and_save_bert(game_stats, reddit_json, positions)
 
@@ -195,8 +190,8 @@ if __name__ == "__main__":
             x_val, t_val, _ = create_sequences(x_val, t_val, lstm_timesteps)
 
         else:
-            # Pokud využíváme jiný model než LSTM, pro vzájemné porovnání je potřeba testovat na stejných datech
             # Pokud využíváme jiný model než LSTM osekneme test. data
+            # pro vzájemné porovnání je potřeba testovat na stejných datech
             lstm_steps_to_compare_with = 2
             _, _, lstm_data_index = create_sequences(x_test, t_test, lstm_steps_to_compare_with)
             x_test = x_test.loc[lstm_data_index]
@@ -247,7 +242,6 @@ if __name__ == "__main__":
 
             # Nešlo mi zapnout trénování pomocí GPU, stáhnul jsem si CUDA, env. proměnné nastavené, ale nefunuguje
             # Tady už je trénování tak pomalé, že by se to vyplatilo umět
-            # TODO: make sure GPU is used for training
             # EDIT: udělal jsem alternativní verzi v pytorchi, kde se mi povedlo zapnout GPU
             # EDIT: výsledkem byl pomalejší trénink než přes CPU
 

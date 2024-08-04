@@ -141,7 +141,6 @@ def describe_reddit_data(reddit_json):
             else:
                 continue
 
-    domain_common_words = [w for w,count in sorted_vocabulary(all_teams_text)[:180]] #180 is the id where I found first NE
     domain_common_words = [w for w,count in sorted_vocabulary(all_teams_text)[:180]]
     # 180 is the id where I found first NE
     for team in stats:
