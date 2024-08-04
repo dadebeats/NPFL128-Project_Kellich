@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 
 import pandas as pd
 import numpy as np
@@ -7,6 +8,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from tensorflow.keras.callbacks import EarlyStopping
+from tqdm import tqdm
 
 from text_data import describe_reddit_data, create_and_save_bert, create_and_save_textblob
 from reddit_scraper import team_subreddits
@@ -14,6 +16,8 @@ from models import create_model2, create_model1
 from common import load_gamestats
 
 pd.set_option('display.max_columns', 5)
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_layers", type=int, default=2)
 parser.add_argument("--hidden_dim", type=int, default=128)
@@ -146,8 +150,6 @@ if __name__ == "__main__":
     # *Např. L40_mean je průměr skóre hráče za posledních 40 zápasů
     feature_pool = load_feature_pool()
 
-
-
     print("Feature pool snippet:")
     print(feature_pool["Forward"].head())
     # Data nascrapovaná z redditu:
@@ -159,7 +161,7 @@ if __name__ == "__main__":
     use_text = args.use_textblob
     use_bert_model = args.use_bert
     lstm_timesteps = args.lstm_timesteps
-    lstm_data_index = None
+    lstm_data_index = None # will be set later if needed
     if use_bert_model and lstm_timesteps:
         raise NotImplementedError("Can't use LSTM (model1) and BERT (model2) at the same time")
     print("LSTM:", lstm_timesteps, "Use textblob:", use_text, "Use BERT:", use_bert_model)
@@ -167,9 +169,13 @@ if __name__ == "__main__":
 
     # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
     #create_and_save_textblob(game_stats, reddit_json, positions)
+    # 1) Využití lexicon based algoritmu z TextBlobu - pro zrychlení zakomentované - v gitu jsou už potř. soubory
+    # create_and_save_textblob(game_stats, reddit_json, positions)
 
     # 2) Využití BERT encoderu - pro zrychlení zakomentovat - v gitu jsou už potř. soubory
     #create_and_save_bert(game_stats, reddit_json, positions)
+    # 2) Využití BERT encoderu - pro zrychlení zakomentované - v gitu jsou už potř. soubory
+    # create_and_save_bert(game_stats, reddit_json, positions)
 
     data_dim = 660
     if use_bert_model:
@@ -190,11 +196,13 @@ if __name__ == "__main__":
 
         else:
             # Pokud využíváme jiný model než LSTM, pro vzájemné porovnání je potřeba testovat na stejných datech
+            # Pokud využíváme jiný model než LSTM osekneme test. data
             lstm_steps_to_compare_with = 2
             _, _, lstm_data_index = create_sequences(x_test, t_test, lstm_steps_to_compare_with)
             x_test = x_test.loc[lstm_data_index]
             t_test = t_test.loc[lstm_data_index]
 
+        # Rozdvojka na model1 a model2 ze složky "approach_sketches"
         if not use_bert_model:
             model1 = create_model1(args.lstm_timesteps, data_dim, args.hidden_dim, args.num_layers, args.dropout)
             model1.fit(x_train, t_train,
@@ -240,6 +248,9 @@ if __name__ == "__main__":
             # Nešlo mi zapnout trénování pomocí GPU, stáhnul jsem si CUDA, env. proměnné nastavené, ale nefunuguje
             # Tady už je trénování tak pomalé, že by se to vyplatilo umět
             # TODO: make sure GPU is used for training
+            # EDIT: udělal jsem alternativní verzi v pytorchi, kde se mi povedlo zapnout GPU
+            # EDIT: výsledkem byl pomalejší trénink než přes CPU
+
             model.fit(train_inputs, t_train,
                       epochs=200,
                       batch_size=20,

@@ -88,19 +88,12 @@ def xs_ys_from_text(row, sentiments, timesteps=None):
     return pd.Series(res)
 
 
-def get_common_words_set(word_count_lists):
-    total_word_count_dict = {}
-    for vocab in word_count_lists:
-        for word, count in vocab.items():
-            if word in total_word_count_dict:
-                total_word_count_dict[word] += count
-            else:
-                total_word_count_dict[word] = count
-
-    total_vocab = list(total_word_count_dict)
-
-
 def describe_reddit_data(reddit_json):
+    """
+    Function which gets the scraped reddit data and does analysis and prints examples
+    :param reddit_json:
+    :return: statistics for the corpus in dict format
+    """
     stats = {key: {} for key in reddit_json.keys()}
     print("Reddit data is composed of 100 top comments of each relevant thread and then top 10 replies to each.")
     print("This makes up to 1000 comments per match.")
@@ -149,6 +142,8 @@ def describe_reddit_data(reddit_json):
                 continue
 
     domain_common_words = [w for w,count in sorted_vocabulary(all_teams_text)[:180]] #180 is the id where I found first NE
+    domain_common_words = [w for w,count in sorted_vocabulary(all_teams_text)[:180]]
+    # 180 is the id where I found first NE
     for team in stats:
         team_specific_vocab = []
         for w, count in stats[team]["vocab"]:
@@ -161,6 +156,13 @@ def describe_reddit_data(reddit_json):
 
 
 def create_and_save_textblob(game_stats, reddit_json, positions):
+    """
+    Goes through game stats data and creates corresponding textblob features (Sentiment analysis)
+    :param game_stats: original numerical stats for the football performances
+    :param reddit_json: scraped reddit data
+    :param positions: ["Forward", "Midfielder", "Defender"]
+    :return: Nothing, just saves the features dataframe to files
+    """
     text_feature_pool = {}
 
     sentiments = {team: {date: extract_sentiment_features(text) for date, text in team_d.items()}
@@ -175,6 +177,13 @@ def create_and_save_textblob(game_stats, reddit_json, positions):
 
 
 def create_and_save_bert(game_stats, reddit_json, positions):
+    """
+    For each row of game_stats uses bert encoder to encode the top 512 tokens of reddit data gathered before the match.
+    :param game_stats:
+    :param reddit_json:
+    :param positions:
+    :return:
+    """
     bert_encoder = BertEncoder()
 
     def encode_text(text):
