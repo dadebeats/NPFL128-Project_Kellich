@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from typing import Dict, Tuple, List, Union
 
 import pandas as pd
 import numpy as np
@@ -8,30 +9,16 @@ from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 from tensorflow.keras.callbacks import EarlyStopping
-from tqdm import tqdm
 
 from text_data import describe_reddit_data, create_and_save_bert, create_and_save_textblob
 from reddit_scraper import team_subreddits
 from models import create_model2, create_model1
 from common import load_gamestats
 
-pd.set_option('display.max_columns', 5)
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--num_layers", type=int, default=2)
-parser.add_argument("--hidden_dim", type=int, default=128)
-parser.add_argument("--dropout", type=float, default=0.2)
-
-parser.add_argument("--lstm_timesteps", type=int, default=0,
-                    help="Set zero to not use LSTM, else set size of sequence u want to train/predict from.")
-parser.add_argument("--use_bert", type=bool, default=True,
-                    help="Whether to use bert or not, if BERT is used we can't use LSTM")
-parser.add_argument("--use_textblob", type=bool, default=False,
-                    help="Whether to use textblob features or not.")
 
 
-def prepare_data(df, concat_text=False):
+def prepare_data(df: pd.DataFrame, concat_text: bool = False) -> Tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series, pd.Series]:
     """
     Functions which cleans up data (fillna, include numerics only), scales them and splits to train/val/test sets.
     :param df:
@@ -70,7 +57,11 @@ def prepare_data(df, concat_text=False):
     return x_train, x_val, x_test, t_train, t_val, t_test, l40s_test
 
 
-def load_feature_pool() -> pd.DataFrame:
+def load_feature_pool() -> Dict[str, pd.DataFrame]:
+    """
+
+    :return:
+    """
     fp = {}
     for position in positions:
         df = pd.read_csv(f"dataset/2024-03-12_comprehensive/{position}.csv", index_col="gameId")
@@ -80,7 +71,8 @@ def load_feature_pool() -> pd.DataFrame:
     return fp
 
 
-def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int):
+def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int) -> Tuple[
+    np.ndarray, np.ndarray, List[str]]:
     """
     Create sequences of a specified length for LSTM model training, ensuring each player has enough data points.
 
@@ -129,8 +121,7 @@ def create_sequences(df: pd.DataFrame, series_target: pd.Series, timestep: int):
     return sequences, targets, target_ids
 
 
-if __name__ == "__main__":
-    args = parser.parse_args()
+def main(argsargs: argparse.Namespace):
     # Originální data "game_stats", ze kterých je napočítán dataset v proměnné "feature_pool"
     # Řádek je jeden zápas z pohledu jednoho hráče a obsahuje statistiky hráče v zápase a cílovou veličinu
     # Game_stats budeme potřebovat minimálně jako index pro vytváření features z textu
@@ -161,7 +152,7 @@ if __name__ == "__main__":
     use_text = args.use_textblob
     use_bert_model = args.use_bert
     lstm_timesteps = args.lstm_timesteps
-    lstm_data_index = None # will be set later if needed
+    lstm_data_index = None  # will be set later if needed
     if use_bert_model and lstm_timesteps:
         raise NotImplementedError("Can't use LSTM (model1) and BERT (model2) at the same time")
     print("LSTM:", lstm_timesteps, "Use textblob:", use_text, "Use BERT:", use_bert_model)
@@ -261,3 +252,22 @@ if __name__ == "__main__":
         baseline_rmse = np.sqrt(np.mean((t_test - baseline_predictions) ** 2))
         print(f'Baseline RMSE (predicting average of train targets): {baseline_rmse}')
         # predictions = model.predict(x_test)
+
+if __name__ == "__main__":
+    pd.set_option('display.max_columns', 5)
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--dropout", type=float, default=0.2)
+
+    parser.add_argument("--lstm_timesteps", type=int, default=0,
+                        help="Set zero to not use LSTM, else set size of sequence u want to train/predict from.")
+    parser.add_argument("--use_bert", type=bool, default=True,
+                        help="Whether to use bert or not, if BERT is used we can't use LSTM")
+    parser.add_argument("--use_textblob", type=bool, default=False,
+                        help="Whether to use textblob features or not.")
+
+    args = parser.parse_args()
+    main(args)

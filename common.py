@@ -20,13 +20,13 @@ current_year = 23
 common_cols_in_ls = {'PSH', 'IWH', 'PSCD', 'HTR', 'AST', 'VCD', 'AF', 'FTHG', 'VCA', 'HY', 'season', 'WHD', 'BWH', 'HR', 'AwayTeam', 'HS', 'B365D', 'VCH', 'HomeTeam', 'HTAG', 'PSA', 'BWD', 'Div', 'B365H', 'B365A', 'PSCH', 'IWD', 'IWA', 'BWA', 'PSCA', 'AR', 'WHH', 'WHA', 'HST', 'AS', 'Date', 'FTR', 'PSD', 'FTAG', 'HTHG', 'HF', 'AC', 'HC', 'AY'}
 
 
-def load_simple():
+def load_simple() -> pd.DataFrame:
     simple = pd.read_csv(open("data/all_players_simple.csv", "r", encoding="utf-8"))
 
     return simple
 
 
-def load_gamestats(is_clustering) -> pd.DataFrame:
+def load_gamestats(is_clustering: bool) -> pd.DataFrame:
     game_stats = pd.read_csv("data/game_stats.csv")
     simple = load_simple()
     #TODO: a lot of fixing here, maybe move all this filtering to params

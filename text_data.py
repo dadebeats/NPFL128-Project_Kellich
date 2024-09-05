@@ -1,17 +1,17 @@
 from collections import Counter
+from typing import Dict, List, Tuple
 
 import nltk
 from textblob import TextBlob
 import numpy as np
 import pandas as pd
-nltk.download('stopwords')
 from tqdm.auto import tqdm
 tqdm.pandas()
 
 from models import BertEncoder
 
 
-def row_to_bert_vector(row, encoded_texts):
+def row_to_bert_vector(row: pd.Series, encoded_texts: Dict) -> pd.Series:
     player_club = row['club']
     match_date = row['date']
     modeled_club = player_club
@@ -36,14 +36,14 @@ def row_to_bert_vector(row, encoded_texts):
     return pd.Series(res)
 
 
-def extract_sentiment_features(corpus):
+def extract_sentiment_features(corpus: str) -> Tuple[int, int]:
     analysis = TextBlob(corpus)
     polarity = analysis.sentiment.polarity
     subjectivity = analysis.sentiment.subjectivity
     return polarity, subjectivity
 
 
-def xs_ys_from_text(row, sentiments, timesteps=None):
+def xs_ys_from_text(row: pd.Series, sentiments: Dict, timesteps: int = None) -> pd.Series:
     """
     Aggregates text data from Reddit for dates before the match date.
 
@@ -88,7 +88,7 @@ def xs_ys_from_text(row, sentiments, timesteps=None):
     return pd.Series(res)
 
 
-def describe_reddit_data(reddit_json):
+def describe_reddit_data(reddit_json: Dict):
     """
     Function which gets the scraped reddit data and does analysis and prints examples
     :param reddit_json:
@@ -118,6 +118,7 @@ def describe_reddit_data(reddit_json):
 
         def sorted_vocabulary(string):
             # Split the string into words and convert to lowercase
+            nltk.download('stopwords')
             estop_palabras = set(nltk.corpus.stopwords.words('english'))
             estop_palabras.add("____")
             words = string.lower().split()
@@ -154,7 +155,7 @@ def describe_reddit_data(reddit_json):
     return stats
 
 
-def create_and_save_textblob(game_stats, reddit_json, positions):
+def create_and_save_textblob(game_stats: pd.DataFrame, reddit_json: Dict, positions: List[str]):
     """
     Goes through game stats data and creates corresponding textblob features (Sentiment analysis)
     :param game_stats: original numerical stats for the football performances
@@ -175,7 +176,7 @@ def create_and_save_textblob(game_stats, reddit_json, positions):
         text_df.to_csv(f"dataset/textual/{position}.csv")
 
 
-def create_and_save_bert(game_stats, reddit_json, positions):
+def create_and_save_bert(game_stats: pd.DataFrame, reddit_json: Dict, positions: List[str]):
     """
     For each row of game_stats uses bert encoder to encode the top 512 tokens of reddit data gathered before the match.
     :param game_stats:
