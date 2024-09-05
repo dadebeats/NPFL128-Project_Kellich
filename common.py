@@ -49,4 +49,3 @@ def load_gamestats(is_clustering) -> pd.DataFrame:
     gws_to_include = {gw for gw, count in gameWeek_data_counts.items() if count > MIN_MATCHES_IN_GW}
     game_stats = game_stats[game_stats.gameWeek.isin(gws_to_include)]
     return game_stats
-

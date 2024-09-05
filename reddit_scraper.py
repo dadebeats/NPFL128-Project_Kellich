@@ -71,10 +71,3 @@ if __name__ == "__main__":
                 corpus.extend(reply.body for reply in replies)
 
             data[team_slug][submission_datetime] = "\n____\n".join(corpus)
-
-
-
-
-
-
-
