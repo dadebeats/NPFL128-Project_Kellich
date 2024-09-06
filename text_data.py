@@ -94,6 +94,7 @@ def describe_reddit_data(reddit_json: Dict):
     :param reddit_json:
     :return: statistics for the corpus in dict format
     """
+    nltk.download('stopwords')
     stats = {key: {} for key in reddit_json.keys()}
     print("Reddit data is composed of 100 top comments of each relevant thread and then top 10 replies to each.")
     print("This makes up to 1000 comments per match.")
@@ -118,7 +119,6 @@ def describe_reddit_data(reddit_json: Dict):
 
         def sorted_vocabulary(string):
             # Split the string into words and convert to lowercase
-            nltk.download('stopwords')
             estop_palabras = set(nltk.corpus.stopwords.words('english'))
             estop_palabras.add("____")
             words = string.lower().split()
